@@ -1,0 +1,5 @@
+Service	Command	Runs on Port
+ASR Service	uvicorn app.main:app --reload --port 8001	8001
+Alignment Service	uvicorn app.main:app --reload --port 8002	8002
+Scoring Service	uvicorn app.main:app --reload --port 8003	8003
+API Gateway	uvicorn app.main:app --reload --port 8000	8000

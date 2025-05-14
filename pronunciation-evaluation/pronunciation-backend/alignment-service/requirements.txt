@@ -1,0 +1,7 @@
+fastapi==0.95.2
+uvicorn==0.22.0
+python-multipart==0.0.6
+g2p-en==2.1.0
+montreal-forced-aligner==2.0.6
+praatio==6.0.0
+textgrid==1.5
