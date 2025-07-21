@@ -141,7 +141,6 @@ export default function AudioRecorder({ onSubmit, disabled, apiEndpoint = 'http:
 
             visualize();
 
-            r
             timerIntervalRef.current = setInterval(() => {
                 setRecordingTime(prev => prev + 1);
             }, 1000);
