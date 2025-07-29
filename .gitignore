@@ -9,6 +9,7 @@ __pycache__/
 .idea/
 *.sqlite3
 *.log
+*.pid
 *.egg-info/
 **/venv/
 **/mfa_outputs/
