@@ -19,7 +19,8 @@ class WhisperASR:
             sampling_rate=16000, 
             return_tensors="pt"
         ).input_features.to(self.device)
-        
+        self.model.generation_config.language = "en"
+        self.model.generation_config.task = "transcribe"
         predicted_ids = self.model.generate(inputs)
         transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
         
