@@ -1,217 +1,266 @@
-#!/bin/bash
+@echo off
+setlocal enabledelayedexpansion
 
-# 语音发音分析器 - 一键启动脚本
-# 适用于 macOS/Linux
+REM Speech Pronunciation Analyzer - Service Startup Script
+REM For Windows
 
-echo " 启动语音发音分析器服务..."
+echo Starting Speech Pronunciation Analyzer Services...
+echo.
 
-# 定义颜色
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+REM Get script directory
+set "SCRIPT_DIR=%~dp0"
+set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+set "BACKEND_DIR=%SCRIPT_DIR%\pronunciation-evaluation\pronunciation-backend"
+set "LOG_DIR=%SCRIPT_DIR%\logs"
 
-# 检查是否安装了 Python 和 uvicorn
-check_dependencies() {
-    echo -e "${BLUE}📋 检查依赖项...${NC}"
-    
-    if ! command -v python3 &> /dev/null; then
-        echo -e "${RED}❌ Python3 未安装，请先安装 Python3${NC}"
-        exit 1
-    fi
-    
-    if ! command -v pip3 &> /dev/null; then
-        echo -e "${RED}❌ pip3 未安装，请先安装 pip3${NC}"
-        exit 1
-    fi
-    
-    echo -e "${GREEN}✅ 依赖项检查完成${NC}"
-}
+REM Parse command line arguments
+set "ACTION=%1"
+if "%ACTION%"=="" set "ACTION=start"
 
-# 安装依赖
-install_dependencies() {
-    echo -e "${BLUE}📦 安装服务依赖...${NC}"
-    
-    # 获取脚本所在目录
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    # 修正路径：添加 pronunciation-evaluation 目录
-    BACKEND_DIR="$SCRIPT_DIR/pronunciation-evaluation/pronunciation-backend"
-    
-    # 检查后端目录是否存在
-    if [ ! -d "$BACKEND_DIR" ]; then
-        echo -e "${RED}❌ 找不到后端目录: $BACKEND_DIR${NC}"
-        return 1
-    fi
-    
-    echo -e "${YELLOW}🔍 使用后端目录: $BACKEND_DIR${NC}"
-    
-    # 安装各个服务的依赖
-    services=("asr-service" "alignment-service" "scoring-service" "api-gateway")
-    
-    for service_name in "${services[@]}"; do
-        service_path="$BACKEND_DIR/$service_name"
-        if [ -d "$service_path" ]; then
-            echo -e "${YELLOW}📦 安装 $service_name 依赖...${NC}"
-            cd "$service_path"
-            if [ -f "requirements.txt" ]; then
-                pip3 install -r requirements.txt
-                if [ $? -eq 0 ]; then
-                    echo -e "${GREEN}✅ $service_name 依赖安装完成${NC}"
-                else
-                    echo -e "${RED}❌ $service_name 依赖安装失败${NC}"
-                    return 1
-                fi
-            else
-                echo -e "${YELLOW}⚠️  $service_name 没有 requirements.txt 文件${NC}"
-            fi
-        else
-            echo -e "${RED}❌ 找不到 $service_name 目录: $service_path${NC}"
-            return 1
-        fi
-    done
-    
-    echo -e "${GREEN}✅ 所有依赖安装完成${NC}"
-}
+REM Main program entry
+if /i "%ACTION%"=="start" goto :start_all
+if /i "%ACTION%"=="stop" goto :stop_all
+if /i "%ACTION%"=="status" goto :show_status
+if /i "%ACTION%"=="restart" goto :restart_all
+goto :show_usage
 
-# 启动服务
-start_services() {
-    echo -e "${BLUE}🚀 启动服务...${NC}"
-    
-    # 获取脚本所在目录
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    # 修正路径：添加 pronunciation-evaluation 目录
-    BACKEND_DIR="$SCRIPT_DIR/pronunciation-evaluation/pronunciation-backend"
-    
-    # 使用普通数组替代关联数组，兼容性更好
-    service_names=("asr-service" "alignment-service" "scoring-service" "api-gateway")
-    service_ports=("8001" "8002" "8003" "8000")
-    
-    # 创建日志目录
-    mkdir -p "$SCRIPT_DIR/logs"
-    
-    # 启动每个服务
-    for i in "${!service_names[@]}"; do
-        service_name="${service_names[$i]}"
-        port="${service_ports[$i]}"
-        service_path="$BACKEND_DIR/$service_name"
-        
-        if [ -d "$service_path" ]; then
-            echo -e "${YELLOW} 启动 $service_name (端口: $port)...${NC}"
-            
-            # 切换到服务目录并启动
-            cd "$service_path"
-            
-            # 在后台启动服务，并将输出重定向到日志文件
-            nohup uvicorn app.main:app --reload --port "$port" --host 0.0.0.0 > "$SCRIPT_DIR/logs/${service_name}.log" 2>&1 &
-            
-            # 保存进程ID
-            echo $! > "$SCRIPT_DIR/logs/${service_name}.pid"
-            
-            # 等待一下确保服务启动
-            sleep 2
-            
-            # 检查服务是否成功启动
-            if curl -s "http://localhost:$port/health" > /dev/null 2>&1 || curl -s "http://localhost:$port/" > /dev/null 2>&1; then
-                echo -e "${GREEN}✅ $service_name 启动成功 (端口: $port)${NC}"
-            else
-                echo -e "${YELLOW}⚠️  $service_name 可能还在启动中，请检查日志: logs/${service_name}.log${NC}"
-            fi
-        else
-            echo -e "${RED}❌ 找不到 $service_name 目录: $service_path${NC}"
-        fi
-    done
-}
+:start_all
+call :check_dependencies
+if errorlevel 1 exit /b 1
+call :install_dependencies
+if errorlevel 1 exit /b 1
+call :start_services
+timeout /t 3 /nobreak >nul
+call :show_status
+goto :end
 
-# 显示服务状态
-show_status() {
-    echo -e "${BLUE}📊 服务状态:${NC}"
-    echo "----------------------------------------"
-    
-    # 使用普通数组替代关联数组
-    service_names=("asr-service" "alignment-service" "scoring-service" "api-gateway")
-    service_ports=("8001" "8002" "8003" "8000")
-    
-    for i in "${!service_names[@]}"; do
-        service_name="${service_names[$i]}"
-        port="${service_ports[$i]}"
-        if curl -s "http://localhost:$port/health" > /dev/null 2>&1 || curl -s "http://localhost:$port/" > /dev/null 2>&1; then
-            echo -e "${GREEN}✅ $service_name (端口: $port) - 运行中${NC}"
-        else
-            echo -e "${RED}❌ $service_name (端口: $port) - 未运行${NC}"
-        fi
-    done
-    
-    echo "----------------------------------------"
-    echo -e "${BLUE}📝 日志文件位置: logs/${NC}"
-    echo -e "${BLUE}🌐 API Gateway: http://localhost:8000${NC}"
-}
+:stop_all
+call :stop_services
+goto :end
 
-# 停止服务
-stop_services() {
-    echo -e "${BLUE}🛑 停止服务...${NC}"
-    
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    if [ -d "$SCRIPT_DIR/logs" ]; then
-        for pid_file in "$SCRIPT_DIR/logs"/*.pid; do
-            if [ -f "$pid_file" ]; then
-                service_name=$(basename "$pid_file" .pid)
-                pid=$(cat "$pid_file")
-                
-                if kill -0 "$pid" 2>/dev/null; then
-                    echo -e "${YELLOW} 停止 $service_name (PID: $pid)...${NC}"
-                    kill "$pid"
-                    rm "$pid_file"
-                    echo -e "${GREEN}✅ $service_name 已停止${NC}"
-                else
-                    echo -e "${YELLOW}⚠️  $service_name 进程不存在，清理 PID 文件${NC}"
-                    rm "$pid_file"
-                fi
-            fi
-        done
-    fi
-    
-    echo -e "${GREEN}✅ 所有服务已停止${NC}"
-}
+:restart_all
+call :stop_services
+timeout /t 2 /nobreak >nul
+call :check_dependencies
+if errorlevel 1 exit /b 1
+call :install_dependencies
+if errorlevel 1 exit /b 1
+call :start_services
+timeout /t 3 /nobreak >nul
+call :show_status
+goto :end
 
-# 主函数
-main() {
-    case "${1:-start}" in
-        "start")
-            check_dependencies
-            install_dependencies
-            start_services
-            sleep 3
-            show_status
-            ;;
-        "stop")
-            stop_services
-            ;;
-        "status")
-            show_status
-            ;;
-        "restart")
-            stop_services
-            sleep 2
-            check_dependencies
-            install_dependencies
-            start_services
-            sleep 3
-            show_status
-            ;;
-        *)
-            echo "用法: $0 [start|stop|status|restart]"
-            echo "  start   - 启动所有服务 (默认)"
-            echo "  stop    - 停止所有服务"
-            echo "  status  - 显示服务状态"
-            echo "  restart - 重启所有服务"
-            exit 1
-            ;;
-    esac
-}
+:check_dependencies
+echo Checking dependencies...
 
-# 运行主函数
-main "$@" 
+REM Check Python
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python is not installed. Please install Python first.
+    exit /b 1
+)
+
+REM Check pip
+pip --version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: pip is not installed. Please install pip first.
+    exit /b 1
+)
+
+echo SUCCESS: Dependencies check completed.
+exit /b 0
+
+:install_dependencies
+echo Installing service dependencies...
+
+REM Check if backend directory exists
+if not exist "%BACKEND_DIR%" (
+    echo ERROR: Cannot find backend directory: %BACKEND_DIR%
+    exit /b 1
+)
+
+echo Using backend directory: %BACKEND_DIR%
+
+REM Install dependencies for each service
+for %%s in (asr-service alignment-service scoring-service api-gateway) do (
+    set "SERVICE_PATH=%BACKEND_DIR%\%%s"
+    if exist "!SERVICE_PATH!" (
+        echo Installing %%s dependencies...
+        pushd "!SERVICE_PATH!"
+        if exist "requirements.txt" (
+            pip install -r requirements.txt
+            if errorlevel 1 (
+                echo ERROR: Failed to install %%s dependencies
+                popd
+                exit /b 1
+            ) else (
+                echo SUCCESS: %%s dependencies installed
+            )
+        ) else (
+            echo WARNING: %%s has no requirements.txt file
+        )
+        popd
+    ) else (
+        echo ERROR: Cannot find %%s directory: !SERVICE_PATH!
+        exit /b 1
+    )
+)
+
+echo SUCCESS: All dependencies installed
+exit /b 0
+
+:start_services
+echo Starting services...
+
+REM Create logs directory
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+
+REM Start asr-service on port 8001
+set "SERVICE_PATH=%BACKEND_DIR%\asr-service"
+if exist "%SERVICE_PATH%" (
+    echo Starting asr-service on port 8001...
+    pushd "%SERVICE_PATH%"
+    start "asr-service" /min cmd /c "uvicorn app.main:app --reload --port 8001 --host 0.0.0.0 > "%LOG_DIR%\asr-service.log" 2>&1"
+    echo asr-service > "%LOG_DIR%\asr-service.pid"
+    popd
+    timeout /t 2 /nobreak >nul
+) else (
+    echo ERROR: Cannot find asr-service directory
+)
+
+REM Start alignment-service on port 8002
+set "SERVICE_PATH=%BACKEND_DIR%\alignment-service"
+if exist "%SERVICE_PATH%" (
+    echo Starting alignment-service on port 8002...
+    pushd "%SERVICE_PATH%"
+    start "alignment-service" /min cmd /c "uvicorn app.main:app --reload --port 8002 --host 0.0.0.0 > "%LOG_DIR%\alignment-service.log" 2>&1"
+    echo alignment-service > "%LOG_DIR%\alignment-service.pid"
+    popd
+    timeout /t 2 /nobreak >nul
+) else (
+    echo ERROR: Cannot find alignment-service directory
+)
+
+REM Start scoring-service on port 8003
+set "SERVICE_PATH=%BACKEND_DIR%\scoring-service"
+if exist "%SERVICE_PATH%" (
+    echo Starting scoring-service on port 8003...
+    pushd "%SERVICE_PATH%"
+    start "scoring-service" /min cmd /c "uvicorn app.main:app --reload --port 8003 --host 0.0.0.0 > "%LOG_DIR%\scoring-service.log" 2>&1"
+    echo scoring-service > "%LOG_DIR%\scoring-service.pid"
+    popd
+    timeout /t 2 /nobreak >nul
+) else (
+    echo ERROR: Cannot find scoring-service directory
+)
+
+REM Start api-gateway on port 8000
+set "SERVICE_PATH=%BACKEND_DIR%\api-gateway"
+if exist "%SERVICE_PATH%" (
+    echo Starting api-gateway on port 8000...
+    pushd "%SERVICE_PATH%"
+    start "api-gateway" /min cmd /c "uvicorn app.main:app --reload --port 8000 --host 0.0.0.0 > "%LOG_DIR%\api-gateway.log" 2>&1"
+    echo api-gateway > "%LOG_DIR%\api-gateway.pid"
+    popd
+    timeout /t 2 /nobreak >nul
+) else (
+    echo ERROR: Cannot find api-gateway directory
+)
+
+echo All services started. Check logs directory for service output.
+exit /b 0
+
+
+
+:show_status
+echo Service Status:
+echo ----------------------------------------
+
+REM Check asr-service (port 8001)
+curl -s "http://localhost:8001/health" >nul 2>&1
+if not errorlevel 1 (
+    echo SUCCESS: asr-service (port 8001) - Running
+) else (
+    curl -s "http://localhost:8001/" >nul 2>&1
+    if not errorlevel 1 (
+        echo SUCCESS: asr-service (port 8001) - Running
+    ) else (
+        echo ERROR: asr-service (port 8001) - Not running
+    )
+)
+
+REM Check alignment-service (port 8002)
+curl -s "http://localhost:8002/health" >nul 2>&1
+if not errorlevel 1 (
+    echo SUCCESS: alignment-service (port 8002) - Running
+) else (
+    curl -s "http://localhost:8002/" >nul 2>&1
+    if not errorlevel 1 (
+        echo SUCCESS: alignment-service (port 8002) - Running
+    ) else (
+        echo ERROR: alignment-service (port 8002) - Not running
+    )
+)
+
+REM Check scoring-service (port 8003)
+curl -s "http://localhost:8003/health" >nul 2>&1
+if not errorlevel 1 (
+    echo SUCCESS: scoring-service (port 8003) - Running
+) else (
+    curl -s "http://localhost:8003/" >nul 2>&1
+    if not errorlevel 1 (
+        echo SUCCESS: scoring-service (port 8003) - Running
+    ) else (
+        echo ERROR: scoring-service (port 8003) - Not running
+    )
+)
+
+REM Check api-gateway (port 8000)
+curl -s "http://localhost:8000/health" >nul 2>&1
+if not errorlevel 1 (
+    echo SUCCESS: api-gateway (port 8000) - Running
+) else (
+    curl -s "http://localhost:8000/" >nul 2>&1
+    if not errorlevel 1 (
+        echo SUCCESS: api-gateway (port 8000) - Running
+    ) else (
+        echo ERROR: api-gateway (port 8000) - Not running
+    )
+)
+
+echo ----------------------------------------
+echo Log files location: logs\
+echo API Gateway: http://localhost:8000
+exit /b 0
+
+:stop_services
+echo Stopping services...
+
+REM Stop all uvicorn processes
+for /f "tokens=2" %%i in ('tasklist /fi "imagename eq python.exe" /fo table /nh 2^>nul ^| findstr uvicorn') do (
+    echo Stopping process %%i...
+    taskkill /pid %%i /f >nul 2>&1
+)
+
+REM Stop service windows by title
+taskkill /fi "windowtitle eq asr-service" /f >nul 2>&1
+taskkill /fi "windowtitle eq alignment-service" /f >nul 2>&1
+taskkill /fi "windowtitle eq scoring-service" /f >nul 2>&1
+taskkill /fi "windowtitle eq api-gateway" /f >nul 2>&1
+
+REM Clean up PID files
+if exist "%LOG_DIR%\*.pid" del /q "%LOG_DIR%\*.pid" >nul 2>&1
+
+echo SUCCESS: All services stopped
+exit /b 0
+
+:show_usage
+echo Usage: %~nx0 [start^|stop^|status^|restart]
+echo   start   - Start all services (default)
+echo   stop    - Stop all services
+echo   status  - Show service status
+echo   restart - Restart all services
+exit /b 1
+
+:end
+endlocal
