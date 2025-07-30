@@ -12,4 +12,5 @@ __pycache__/
 *.pid
 *.egg-info/
 **/venv/
+**/.venv/
 **/mfa_outputs/
